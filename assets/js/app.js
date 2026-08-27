@@ -160,8 +160,14 @@
 
   function addResults(rows) {
     if (!rows.length) return;
-    const fresh = rows.map((r) => ({ ...r, _fresh: true }));
-    resultsData = [...fresh, ...resultsData].slice(0, MAX_ROWS);
+    rows.forEach((row) => {
+      if (row._key) {
+        const idx = resultsData.findIndex((r) => r._key === row._key);
+        if (idx !== -1) resultsData.splice(idx, 1);
+      }
+      resultsData.unshift({ ...row, _fresh: true });
+    });
+    resultsData = resultsData.slice(0, MAX_ROWS);
     renderResults();
   }
 
@@ -268,6 +274,7 @@
         const newRows = [];
         if (data.officialHit) {
           newRows.push({
+            _key: `deal:${data.item.id}:itemmarket`,
             itemName: data.item.name,
             price: data.officialHit.price,
             reference: data.officialHit.averagePrice,
@@ -280,6 +287,7 @@
         }
         (data.communityHits || []).forEach((hit) => {
           newRows.push({
+            _key: `deal:${data.item.id}:bazaar:${hit.sellerId ?? hit.sellerName ?? Math.random()}`,
             itemName: data.item.name,
             price: hit.price,
             reference: hit.referencePrice,
