@@ -26,6 +26,7 @@
     catalogStatus: document.getElementById('catalogStatus'),
     dealsIntervalInput: document.getElementById('dealsIntervalInput'),
     dollarIntervalInput: document.getElementById('dollarIntervalInput'),
+    btnClearDismissed: document.getElementById('btnClearDismissed'),
   };
 
   let mode = null;
@@ -37,6 +38,30 @@
   let sortState = { key: null, dir: 1 };
   let dealsPollMs = DEFAULT_DEALS_POLL_MS;
   let dollarRefreshMs = DEFAULT_DOLLAR_REFRESH_MS;
+
+  function isDealKey(key) {
+    return typeof key === 'string' && key.startsWith('deal:');
+  }
+
+  function loadDismissedDeals() {
+    try {
+      const raw = localStorage.getItem('tornup_dismissedDeals');
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveDismissedDeals() {
+    try {
+      localStorage.setItem('tornup_dismissedDeals', JSON.stringify([...dismissedDeals]));
+    } catch (e) {
+      // storage unavailable/full — dismiss state just won't persist this time
+    }
+  }
+
+  let dismissedDeals = new Set(loadDismissedDeals());
 
   async function fetchJson(url, opts) {
     const res = await fetch(url, opts);
@@ -94,6 +119,8 @@
   }
 
   function rowHtml(row) {
+    const muted = row._key && dismissedDeals.has(row._key);
+
     const discountHtml = row.discountPercent !== undefined
       ? `<span class="discount-good">-${row.discountPercent}%</span>`
       : '—';
@@ -108,15 +135,17 @@
       : '';
 
     const dismissHtml = row._key
-      ? `<button type="button" class="dismiss-btn" data-key="${escapeHtml(row._key)}" title="Remove from this list">✕</button>`
+      ? `<button type="button" class="dismiss-btn" data-key="${escapeHtml(row._key)}" title="${muted ? 'Restore to active list' : (isDealKey(row._key) ? 'Mark as sold/unavailable' : 'Remove from this list')}">${muted ? '↺' : '✕'}</button>`
       : '';
 
     const links = [openHtml, marketHtml, dismissHtml].filter(Boolean).join('');
     const linksHtml = links ? `<span class="links-cell">${links}</span>` : '—';
 
+    const mutedTag = muted ? '<span class="muted-tag">Sold?</span>' : '';
+
     return `
-      <tr class="${row._fresh ? 'hit-fresh' : ''}">
-        <td>${escapeHtml(row.itemName)}</td>
+      <tr class="${row._fresh ? 'hit-fresh' : ''} ${muted ? 'row-muted' : ''}">
+        <td>${escapeHtml(row.itemName)} ${mutedTag}</td>
         <td>${money(row.price)}</td>
         <td>${money(row.reference)}</td>
         <td>${discountHtml}</td>
@@ -189,23 +218,50 @@
     renderResults();
   }
 
+  /**
+   * Adds/updates hits. A row already present with identical price/quantity/
+   * discount is a routine reconfirmation — updated in place with no reorder
+   * or flash. Only a genuinely new row, or one whose numbers actually moved,
+   * jumps to the top and flashes, so the list doesn't reshuffle every tick.
+   */
   function addResults(rows) {
-    if (!rows.length) return false;
+    let changed = false;
     rows.forEach((row) => {
-      if (row._key) {
-        const idx = resultsData.findIndex((r) => r._key === row._key);
-        if (idx !== -1) resultsData.splice(idx, 1);
+      const idx = row._key ? resultsData.findIndex((r) => r._key === row._key) : -1;
+      if (idx === -1) {
+        resultsData.unshift({ ...row, _fresh: true });
+        changed = true;
+        return;
       }
-      resultsData.unshift({ ...row, _fresh: true });
+      const existing = resultsData[idx];
+      const materiallyChanged = existing.price !== row.price
+        || existing.quantity !== row.quantity
+        || existing.discountPercent !== row.discountPercent;
+      if (materiallyChanged) {
+        if (dismissedDeals.delete(row._key)) saveDismissedDeals();
+        resultsData.splice(idx, 1);
+        resultsData.unshift({ ...row, _fresh: true });
+        changed = true;
+      }
     });
-    resultsData = resultsData.slice(0, MAX_ROWS);
-    return true;
+    if (changed) resultsData = resultsData.slice(0, MAX_ROWS);
+    return changed;
   }
 
   /** Drops any existing row for this item whose key isn't in this tick's valid set. */
   function pruneStaleForItem(itemId, validKeys) {
     const before = resultsData.length;
-    resultsData = resultsData.filter((r) => r.itemId !== itemId || validKeys.has(r._key));
+    const removedKeys = [];
+    resultsData = resultsData.filter((r) => {
+      if (r.itemId !== itemId || validKeys.has(r._key)) return true;
+      removedKeys.push(r._key);
+      return false;
+    });
+    let dismissChanged = false;
+    removedKeys.forEach((k) => {
+      if (dismissedDeals.delete(k)) dismissChanged = true;
+    });
+    if (dismissChanged) saveDismissedDeals();
     return resultsData.length !== before;
   }
 
@@ -214,7 +270,16 @@
     if (!btn) return;
     const key = btn.dataset.key;
     if (!key) return;
-    resultsData = resultsData.filter((r) => r._key !== key);
+    if (isDealKey(key)) {
+      if (dismissedDeals.has(key)) {
+        dismissedDeals.delete(key);
+      } else {
+        dismissedDeals.add(key);
+      }
+      saveDismissedDeals();
+    } else {
+      resultsData = resultsData.filter((r) => r._key !== key);
+    }
     renderResults();
   });
 
@@ -458,6 +523,12 @@
       el.searchResults.appendChild(li);
     });
   }
+
+  el.btnClearDismissed.addEventListener('click', () => {
+    dismissedDeals.clear();
+    saveDismissedDeals();
+    renderResults();
+  });
 
   el.btnRefreshCatalog.addEventListener('click', async () => {
     el.btnRefreshCatalog.disabled = true;

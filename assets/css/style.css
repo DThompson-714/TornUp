@@ -154,6 +154,17 @@ tr.hit-fresh {
 
 .discount-good { color: var(--good); font-weight: 600; }
 
+tr.row-muted { opacity: 0.45; }
+tr.row-muted .discount-good { color: var(--text-muted); }
+
+.muted-tag {
+  font-size: 11px;
+  color: var(--bad);
+  border: 1px solid var(--bad);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
 a.open-link {
   color: var(--accent);
   text-decoration: none;
