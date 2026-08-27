@@ -15,7 +15,7 @@ $out = array_map(function ($it) {
         'quantity' => $it['quantity'] ?? null,
         'marketPrice' => $it['marketPrice'] ?? null,
         'lastUpdated' => $it['lastUpdated'] ?? null,
-        'url' => isset($it['playerId']) ? "https://www.torn.com/bazaar.php?userId={$it['playerId']}#/" : null,
+        'url' => isset($it['playerId']) ? "https://www.torn.com/bazaar.php?userId={$it['playerId']}&Check1Buck=True#/" : null,
     ];
 }, $items);
 
