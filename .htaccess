@@ -6,3 +6,15 @@ AuthType Basic
 AuthName "TornUp"
 AuthUserFile "/REPLACE/WITH/ABSOLUTE/PATH/TO/.htpasswd"
 Require valid-user
+
+# Belt-and-suspenders: never serve .htpasswd (or any dotfile) as plain text,
+# in case it ends up inside the web root and your host doesn't already block this.
+<Files ".ht*">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</Files>
