@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornUp - $1 Bazaar Quick Check
 // @namespace    tornup
-// @version      1.0.0
-// @description  On a bazaar page opened with ?Check1Buck=True, highlights any item you can actually buy and closes (or flags) the tab if none are available to you.
+// @version      1.1.0
+// @description  On a bazaar page opened with ?Check1Buck=True, highlights every $1 item you can actually buy and closes (or flags) the tab if none are available to you.
 // @match        https://www.torn.com/bazaar.php*
 // @grant        none
 // @run-at       document-idle
@@ -14,7 +14,8 @@
   const TRIGGER_PARAM = 'Check1Buck';
   const MAX_WAIT_ATTEMPTS = 20;
   const WAIT_INTERVAL_MS = 300;
-  const SETTLE_DELAY_MS = 800;
+  const RESCAN_PASSES = 5;
+  const RESCAN_INTERVAL_MS = 500;
   const CLOSE_FALLBACK_DELAY_MS = 300;
 
   function isActive() {
@@ -30,6 +31,21 @@
         outline: 3px solid #22c55e !important;
         outline-offset: 2px !important;
         box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.35) !important;
+      }
+      .tornup-badge {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        z-index: 999998;
+        background: #1f2937;
+        color: #fff;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font: 13px/1.4 system-ui, sans-serif;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      }
+      .tornup-badge--found {
+        background: #166534;
       }
       .tornup-overlay {
         position: fixed;
@@ -83,6 +99,28 @@
     card.classList.add('tornup-available');
   }
 
+  function ensureBadge() {
+    let badge = document.getElementById('tornup-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'tornup-badge';
+      badge.className = 'tornup-badge';
+      document.body.appendChild(badge);
+    }
+    return badge;
+  }
+
+  function updateBadge(count, done) {
+    const badge = ensureBadge();
+    if (count > 0) {
+      badge.textContent = `${count} $1 item${count === 1 ? '' : 's'} available`;
+      badge.classList.add('tornup-badge--found');
+    } else {
+      badge.textContent = done ? 'Nothing available here' : 'Scanning for $1 items…';
+      badge.classList.remove('tornup-badge--found');
+    }
+  }
+
   function showNothingAvailableBanner() {
     const overlay = document.createElement('div');
     overlay.className = 'tornup-overlay';
@@ -98,16 +136,29 @@
     document.body.appendChild(overlay);
   }
 
-  function runScan() {
+  const foundCards = new Set();
+
+  function scanOnce() {
     const cards = findItemCards();
     const available = cards.filter((card) => isDollarItem(card) && isAvailable(card));
+    available.forEach((card) => {
+      if (!foundCards.has(card)) {
+        foundCards.add(card);
+        highlight(card);
+      }
+    });
+    updateBadge(foundCards.size, false);
+  }
 
-    if (available.length > 0) {
-      available.forEach(highlight);
-      available[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  function finish() {
+    if (foundCards.size > 0) {
+      updateBadge(foundCards.size, true);
+      const first = foundCards.values().next().value;
+      if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
+    updateBadge(0, true);
     window.close();
     // Still here shortly after means the browser blocked the close
     // (it only allows closing tabs a script opened itself).
@@ -116,12 +167,21 @@
     }, CLOSE_FALLBACK_DELAY_MS);
   }
 
+  function runRepeatedScan(pass) {
+    pass = pass || 0;
+    scanOnce();
+    if (pass < RESCAN_PASSES) {
+      setTimeout(() => runRepeatedScan(pass + 1), RESCAN_INTERVAL_MS);
+      return;
+    }
+    finish();
+  }
+
   function waitForItemsThenScan(attempt) {
     attempt = attempt || 0;
     const cards = findItemCards();
     if (cards.length > 0 || attempt >= MAX_WAIT_ATTEMPTS) {
-      // give React a moment to finish rendering the rest of the list
-      setTimeout(runScan, SETTLE_DELAY_MS);
+      runRepeatedScan();
       return;
     }
     setTimeout(() => waitForItemsThenScan(attempt + 1), WAIT_INTERVAL_MS);

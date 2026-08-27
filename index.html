@@ -23,8 +23,8 @@
 
   <div id="banner" class="banner" hidden></div>
 
-  <div class="table-wrap">
-    <table id="resultsTable">
+  <div id="dealsTableWrap" class="table-wrap" hidden>
+    <table id="dealsTable">
       <thead>
         <tr>
           <th data-sort="item"><span class="th-label">Item</span><span class="sort-ind"></span></th>
@@ -37,9 +37,23 @@
           <th></th>
         </tr>
       </thead>
-      <tbody id="resultsBody"></tbody>
+      <tbody id="dealsBody"></tbody>
     </table>
-    <p id="emptyState" class="empty-state">No results yet.</p>
+    <p id="dealsEmptyState" class="empty-state">No results yet.</p>
+  </div>
+
+  <div id="dollarTableWrap" class="table-wrap" hidden>
+    <table id="dollarTable">
+      <thead>
+        <tr>
+          <th data-sort="seller"><span class="th-label">Seller</span><span class="sort-ind"></span></th>
+          <th data-sort="updated"><span class="th-label">Updated</span><span class="sort-ind"></span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="dollarBody"></tbody>
+    </table>
+    <p id="dollarEmptyState" class="empty-state">No results yet.</p>
   </div>
 </main>
 

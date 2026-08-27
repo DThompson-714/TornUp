@@ -14,8 +14,12 @@
     btnStop: document.getElementById('btnStop'),
     status: document.getElementById('status'),
     banner: document.getElementById('banner'),
-    resultsBody: document.getElementById('resultsBody'),
-    emptyState: document.getElementById('emptyState'),
+    dealsTableWrap: document.getElementById('dealsTableWrap'),
+    dealsBody: document.getElementById('dealsBody'),
+    dealsEmptyState: document.getElementById('dealsEmptyState'),
+    dollarTableWrap: document.getElementById('dollarTableWrap'),
+    dollarBody: document.getElementById('dollarBody'),
+    dollarEmptyState: document.getElementById('dollarEmptyState'),
     settingsToggle: document.getElementById('settingsToggle'),
     settingsPanel: document.getElementById('settingsPanel'),
     settingsClose: document.getElementById('settingsClose'),
@@ -30,12 +34,15 @@
   };
 
   let mode = null;
+  let activeView = null; // 'deals' | 'dollar' | null — which table stays visible, even after Stop
   let timer = null;
   let currentTick = null;
   let dealsIndex = 0;
   let dealsCount = 0;
-  let resultsData = [];
-  let sortState = { key: null, dir: 1 };
+  let dealsData = [];
+  let dollarData = [];
+  let dealsSortState = { key: null, dir: 1 };
+  let dollarSortState = { key: null, dir: 1 };
   let dealsPollMs = DEFAULT_DEALS_POLL_MS;
   let dollarRefreshMs = DEFAULT_DOLLAR_REFRESH_MS;
 
@@ -118,7 +125,56 @@
     return Math.min(max, Math.max(min, n));
   }
 
-  function rowHtml(row) {
+  function isMissing(v) {
+    return v === null || v === undefined || v === '';
+  }
+
+  function compareGeneric(a, b, accessors, key, dir) {
+    const accessor = accessors[key];
+    const av = accessor(a);
+    const bv = accessor(b);
+    const aMissing = isMissing(av);
+    const bMissing = isMissing(bv);
+    if (aMissing && bMissing) return 0;
+    if (aMissing) return 1;
+    if (bMissing) return -1;
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  }
+
+  function updateSortIndicatorsFor(tableSelector, sortState) {
+    document.querySelectorAll(`${tableSelector} thead th[data-sort]`).forEach((th) => {
+      const ind = th.querySelector('.sort-ind');
+      if (!ind) return;
+      ind.textContent = th.dataset.sort === sortState.key ? (sortState.dir === 1 ? '▲' : '▼') : '';
+    });
+  }
+
+  function wireSortHeaders(tableSelector, getSortState, onSort) {
+    document.querySelectorAll(`${tableSelector} thead th[data-sort]`).forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        const state = getSortState();
+        if (state.key === key) {
+          state.dir *= -1;
+        } else {
+          state.key = key;
+          state.dir = 1;
+        }
+        onSort();
+      });
+    });
+  }
+
+  function updateVisibleTable() {
+    el.dealsTableWrap.hidden = activeView !== 'deals';
+    el.dollarTableWrap.hidden = activeView !== 'dollar';
+  }
+
+  // --- Deals table ---
+
+  function dealRowHtml(row) {
     const muted = row._key && dismissedDeals.has(row._key);
 
     const discountHtml = row.discountPercent !== undefined
@@ -135,7 +191,7 @@
       : '';
 
     const dismissHtml = row._key
-      ? `<button type="button" class="dismiss-btn" data-key="${escapeHtml(row._key)}" title="${muted ? 'Restore to active list' : (isDealKey(row._key) ? 'Mark as sold/unavailable' : 'Remove from this list')}">${muted ? '↺' : '✕'}</button>`
+      ? `<button type="button" class="dismiss-btn" data-key="${escapeHtml(row._key)}" title="${muted ? 'Restore to active list' : 'Mark as sold/unavailable'}">${muted ? '↺' : '✕'}</button>`
       : '';
 
     const links = [openHtml, marketHtml, dismissHtml].filter(Boolean).join('');
@@ -157,7 +213,7 @@
     `;
   }
 
-  const SORT_ACCESSORS = {
+  const DEAL_SORT_ACCESSORS = {
     item: (r) => (r.itemName || '').toLowerCase(),
     price: (r) => r.price,
     reference: (r) => r.reference,
@@ -171,50 +227,19 @@
     },
   };
 
-  function isMissing(v) {
-    return v === null || v === undefined || v === '';
-  }
-
-  function compareRows(a, b, key, dir) {
-    const accessor = SORT_ACCESSORS[key];
-    const av = accessor(a);
-    const bv = accessor(b);
-    const aMissing = isMissing(av);
-    const bMissing = isMissing(bv);
-    if (aMissing && bMissing) return 0;
-    if (aMissing) return 1;
-    if (bMissing) return -1;
-    if (av < bv) return -1 * dir;
-    if (av > bv) return 1 * dir;
-    return 0;
-  }
-
-  function updateSortIndicators() {
-    document.querySelectorAll('#resultsTable thead th[data-sort]').forEach((th) => {
-      const ind = th.querySelector('.sort-ind');
-      if (!ind) return;
-      ind.textContent = th.dataset.sort === sortState.key ? (sortState.dir === 1 ? '▲' : '▼') : '';
-    });
-  }
-
   function renderResults() {
-    let rows = resultsData;
-    if (sortState.key) {
-      rows = [...resultsData].sort((a, b) => compareRows(a, b, sortState.key, sortState.dir));
+    let rows = dealsData;
+    if (dealsSortState.key) {
+      rows = [...dealsData].sort((a, b) => compareGeneric(a, b, DEAL_SORT_ACCESSORS, dealsSortState.key, dealsSortState.dir));
     }
-    el.resultsBody.innerHTML = rows.map(rowHtml).join('');
-    el.emptyState.hidden = rows.length > 0;
-    resultsData.forEach((r) => { r._fresh = false; });
-    updateSortIndicators();
+    el.dealsBody.innerHTML = rows.map(dealRowHtml).join('');
+    el.dealsEmptyState.hidden = rows.length > 0;
+    dealsData.forEach((r) => { r._fresh = false; });
+    updateSortIndicatorsFor('#dealsTable', dealsSortState);
   }
 
   function clearResults() {
-    resultsData = [];
-    renderResults();
-  }
-
-  function setResults(rows) {
-    resultsData = rows.map((r) => ({ ...r, _fresh: true }));
+    dealsData = [];
     renderResults();
   }
 
@@ -227,32 +252,32 @@
   function addResults(rows) {
     let changed = false;
     rows.forEach((row) => {
-      const idx = row._key ? resultsData.findIndex((r) => r._key === row._key) : -1;
+      const idx = row._key ? dealsData.findIndex((r) => r._key === row._key) : -1;
       if (idx === -1) {
-        resultsData.unshift({ ...row, _fresh: true });
+        dealsData.unshift({ ...row, _fresh: true });
         changed = true;
         return;
       }
-      const existing = resultsData[idx];
+      const existing = dealsData[idx];
       const materiallyChanged = existing.price !== row.price
         || existing.quantity !== row.quantity
         || existing.discountPercent !== row.discountPercent;
       if (materiallyChanged) {
         if (dismissedDeals.delete(row._key)) saveDismissedDeals();
-        resultsData.splice(idx, 1);
-        resultsData.unshift({ ...row, _fresh: true });
+        dealsData.splice(idx, 1);
+        dealsData.unshift({ ...row, _fresh: true });
         changed = true;
       }
     });
-    if (changed) resultsData = resultsData.slice(0, MAX_ROWS);
+    if (changed) dealsData = dealsData.slice(0, MAX_ROWS);
     return changed;
   }
 
   /** Drops any existing row for this item whose key isn't in this tick's valid set. */
   function pruneStaleForItem(itemId, validKeys) {
-    const before = resultsData.length;
+    const before = dealsData.length;
     const removedKeys = [];
-    resultsData = resultsData.filter((r) => {
+    dealsData = dealsData.filter((r) => {
       if (r.itemId !== itemId || validKeys.has(r._key)) return true;
       removedKeys.push(r._key);
       return false;
@@ -262,39 +287,89 @@
       if (dismissedDeals.delete(k)) dismissChanged = true;
     });
     if (dismissChanged) saveDismissedDeals();
-    return resultsData.length !== before;
+    return dealsData.length !== before;
   }
 
-  el.resultsBody.addEventListener('click', (e) => {
+  el.dealsBody.addEventListener('click', (e) => {
     const btn = e.target.closest('.dismiss-btn');
     if (!btn) return;
     const key = btn.dataset.key;
     if (!key) return;
-    if (isDealKey(key)) {
-      if (dismissedDeals.has(key)) {
-        dismissedDeals.delete(key);
-      } else {
-        dismissedDeals.add(key);
-      }
-      saveDismissedDeals();
+    if (dismissedDeals.has(key)) {
+      dismissedDeals.delete(key);
     } else {
-      resultsData = resultsData.filter((r) => r._key !== key);
+      dismissedDeals.add(key);
     }
+    saveDismissedDeals();
     renderResults();
   });
 
-  document.querySelectorAll('#resultsTable thead th[data-sort]').forEach((th) => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      if (sortState.key === key) {
-        sortState.dir *= -1;
-      } else {
-        sortState.key = key;
-        sortState.dir = 1;
-      }
-      renderResults();
-    });
+  wireSortHeaders('#dealsTable', () => dealsSortState, renderResults);
+
+  // --- $1 Items table (one row per bazaar) ---
+
+  function dollarRowHtml(row) {
+    const openHtml = row.url
+      ? `<a class="open-link" href="${row.url}" target="_blank" rel="noopener noreferrer" data-key="${escapeHtml(row._key)}">Open ↗</a>`
+      : '';
+    const dismissHtml = `<button type="button" class="dismiss-btn" data-key="${escapeHtml(row._key)}" title="Remove from this list">✕</button>`;
+    const links = [openHtml, dismissHtml].filter(Boolean).join('');
+    const linksHtml = links ? `<span class="links-cell">${links}</span>` : '—';
+
+    return `
+      <tr class="${row._fresh ? 'hit-fresh' : ''}">
+        <td>${escapeHtml(row.sellerName)}</td>
+        <td>${relTime(row.lastUpdated)}</td>
+        <td>${linksHtml}</td>
+      </tr>
+    `;
+  }
+
+  const DOLLAR_SORT_ACCESSORS = {
+    seller: (r) => (r.sellerName || '').toLowerCase(),
+    updated: (r) => {
+      const t = Date.parse(r.lastUpdated);
+      return Number.isNaN(t) ? null : t;
+    },
+  };
+
+  function renderDollar() {
+    let rows = dollarData;
+    if (dollarSortState.key) {
+      rows = [...dollarData].sort((a, b) => compareGeneric(a, b, DOLLAR_SORT_ACCESSORS, dollarSortState.key, dollarSortState.dir));
+    }
+    el.dollarBody.innerHTML = rows.map(dollarRowHtml).join('');
+    el.dollarEmptyState.hidden = rows.length > 0;
+    dollarData.forEach((r) => { r._fresh = false; });
+    updateSortIndicatorsFor('#dollarTable', dollarSortState);
+  }
+
+  function clearDollarResults() {
+    dollarData = [];
+    renderDollar();
+  }
+
+  function setDollarResults(rows) {
+    dollarData = rows.map((r) => ({ ...r, _fresh: true }));
+    renderDollar();
+  }
+
+  function removeDollarRow(key) {
+    dollarData = dollarData.filter((r) => r._key !== key);
+    renderDollar();
+  }
+
+  // Clicking Open also drops the row — you'll know right away whether there
+  // was anything for you, so there's no need to separately hit Remove after.
+  el.dollarBody.addEventListener('click', (e) => {
+    const target = e.target.closest('.open-link, .dismiss-btn');
+    if (!target) return;
+    const key = target.dataset.key;
+    if (!key) return;
+    removeDollarRow(key);
   });
+
+  wireSortHeaders('#dollarTable', () => dollarSortState, renderDollar);
 
   function setActiveButton() {
     el.btnDollar.classList.toggle('active', mode === 'dollar');
@@ -317,31 +392,28 @@
   async function startDollar() {
     stopAll();
     mode = 'dollar';
+    activeView = 'dollar';
     setActiveButton();
-    clearResults();
+    updateVisibleTable();
+    clearDollarResults();
     setBanner(
       'Torn’s API can’t tell us which $1 listings you personally can buy (some are locked to ' +
-      'specific players). This is every current $1 bazaar listing the community feed knows about — ' +
-      'click through and check in-game before making a trip.'
+      'specific players). Each row is a bazaar currently known to have $1 items — click Open to ' +
+      'check it (the row clears itself once you do).'
     );
 
     async function tick() {
-      setStatus('Refreshing $1 bazaar listings…');
+      setStatus('Refreshing $1 bazaars…');
       try {
         const data = await fetchJson('api/dollar_items.php');
-        setResults((data.items || []).map((it) => ({
-          _key: `dollar:${it.itemId}:${it.sellerId}`,
-          itemId: it.itemId,
-          itemName: it.itemName,
-          price: 1,
-          reference: it.marketPrice,
-          discountPercent: undefined,
-          quantity: it.quantity,
-          seller: it.sellerName,
-          updated: it.lastUpdated,
-          url: it.url,
+        setDollarResults((data.bazaars || []).map((b) => ({
+          _key: `dollar:${b.sellerId}`,
+          sellerId: b.sellerId,
+          sellerName: b.sellerName,
+          lastUpdated: b.lastUpdated,
+          url: b.url,
         })));
-        setStatus(`Showing ${(data.items || []).length} $1 listings · refreshed ${new Date().toLocaleTimeString()}`);
+        setStatus(`Showing ${(data.bazaars || []).length} bazaars with $1 items · refreshed ${new Date().toLocaleTimeString()}`);
       } catch (e) {
         setStatus('Error: ' + e.message);
       }
@@ -367,7 +439,9 @@
     }
 
     mode = 'deals';
+    activeView = 'deals';
     setActiveButton();
+    updateVisibleTable();
     clearResults();
     setBanner(
       'Bazaar-sourced hits below link to a specific seller but that data can lag a few minutes ' +
