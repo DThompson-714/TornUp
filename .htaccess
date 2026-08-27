@@ -1,0 +1,8 @@
+# Password-protects the whole app. See README.md "Set the password" section.
+# Replace the AuthUserFile path below with the real absolute path your host
+# gives you for .htpasswd (cPanel's "Directory Privacy" tool will fill this
+# in for you automatically if you use that instead of creating it by hand).
+AuthType Basic
+AuthName "TornUp"
+AuthUserFile "/REPLACE/WITH/ABSOLUTE/PATH/TO/.htpasswd"
+Require valid-user

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TornUp</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>TornUp</h1>
+  <button id="settingsToggle" class="btn btn-ghost" type="button">Settings</button>
+</header>
+
+<main>
+  <section class="controls">
+    <button id="btnDollar" class="btn btn-primary" type="button">Show $1 Items</button>
+    <button id="btnDeals" class="btn btn-primary" type="button">Show Deals</button>
+    <button id="btnStop" class="btn btn-danger" type="button" disabled>Stop</button>
+  </section>
+
+  <p id="status" class="status">Pick a mode to begin.</p>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <div class="table-wrap">
+    <table id="resultsTable">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Price</th>
+          <th>Reference</th>
+          <th>Discount</th>
+          <th>Qty</th>
+          <th>Seller</th>
+          <th>Updated</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+    <p id="emptyState" class="empty-state">No results yet.</p>
+  </div>
+</main>
+
+<div id="settingsPanel" class="overlay" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Settings</h2>
+      <button id="settingsClose" class="btn btn-ghost" type="button">&times;</button>
+    </div>
+
+    <section>
+      <h3>Deals watchlist</h3>
+      <p class="hint">Items here are checked one at a time while "Show Deals" is running.</p>
+      <div class="search-row">
+        <input id="itemSearch" type="text" placeholder="Search item name (e.g. Xanax)…" autocomplete="off">
+      </div>
+      <ul id="searchResults" class="search-results"></ul>
+      <ul id="watchlist" class="watchlist"></ul>
+    </section>
+
+    <section>
+      <h3>Item catalog</h3>
+      <p class="hint">Needed to resolve item names to IDs. Rarely changes — refresh occasionally.</p>
+      <button id="btnRefreshCatalog" class="btn btn-secondary" type="button">Refresh Item Catalog</button>
+      <span id="catalogStatus" class="hint"></span>
+    </section>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+</body>
+</html>
