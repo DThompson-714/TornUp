@@ -74,14 +74,28 @@
     return d.innerHTML;
   }
 
+  function itemMarketUrl(itemId) {
+    return itemId
+      ? `https://www.torn.com/page.php?sid=ItemMarket#/market/view=search&itemID=${itemId}`
+      : null;
+  }
+
   function rowHtml(row) {
     const discountHtml = row.discountPercent !== undefined
       ? `<span class="discount-good">-${row.discountPercent}%</span>`
       : '—';
 
-    const linkHtml = row.url
+    const openHtml = row.url
       ? `<a class="open-link" href="${row.url}" target="_blank" rel="noopener noreferrer">Open ↗</a>`
-      : '—';
+      : '';
+
+    const marketUrl = itemMarketUrl(row.itemId);
+    const marketHtml = marketUrl
+      ? `<a class="open-link" href="${marketUrl}" target="_blank" rel="noopener noreferrer">Market ↗</a>`
+      : '';
+
+    const links = [openHtml, marketHtml].filter(Boolean).join('');
+    const linksHtml = links ? `<span class="links-cell">${links}</span>` : '—';
 
     return `
       <tr class="${row._fresh ? 'hit-fresh' : ''}">
@@ -92,7 +106,7 @@
         <td>${row.quantity ?? '—'}</td>
         <td>${row.seller ? escapeHtml(row.seller) : '—'}</td>
         <td>${relTime(row.updated)}</td>
-        <td>${linkHtml}</td>
+        <td>${linksHtml}</td>
       </tr>
     `;
   }
@@ -217,6 +231,7 @@
       try {
         const data = await fetchJson('api/dollar_items.php');
         setResults((data.items || []).map((it) => ({
+          itemId: it.itemId,
           itemName: it.itemName,
           price: 1,
           reference: it.marketPrice,
@@ -275,6 +290,7 @@
         if (data.officialHit) {
           newRows.push({
             _key: `deal:${data.item.id}:itemmarket`,
+            itemId: data.item.id,
             itemName: data.item.name,
             price: data.officialHit.price,
             reference: data.officialHit.averagePrice,
@@ -288,6 +304,7 @@
         (data.communityHits || []).forEach((hit) => {
           newRows.push({
             _key: `deal:${data.item.id}:bazaar:${hit.sellerId ?? hit.sellerName ?? Math.random()}`,
+            itemId: data.item.id,
             itemName: data.item.name,
             price: hit.price,
             reference: hit.referencePrice,

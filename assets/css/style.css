@@ -162,6 +162,11 @@ a.open-link {
 
 a.open-link:hover { text-decoration: underline; }
 
+.links-cell {
+  display: inline-flex;
+  gap: 10px;
+}
+
 .empty-state {
   text-align: center;
   color: var(--text-muted);
