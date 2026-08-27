@@ -27,6 +27,8 @@
   let timer = null;
   let dealsIndex = 0;
   let dealsCount = 0;
+  let resultsData = [];
+  let sortState = { key: null, dir: 1 };
 
   async function fetchJson(url, opts) {
     const res = await fetch(url, opts);
@@ -66,16 +68,13 @@
     el.banner.hidden = false;
   }
 
-  function clearResults() {
-    el.resultsBody.innerHTML = '';
-    el.emptyState.hidden = false;
+  function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text ?? '';
+    return d.innerHTML;
   }
 
-  function addRow(row) {
-    el.emptyState.hidden = true;
-    const tr = document.createElement('tr');
-    tr.className = 'hit-fresh';
-
+  function rowHtml(row) {
     const discountHtml = row.discountPercent !== undefined
       ? `<span class="discount-good">-${row.discountPercent}%</span>`
       : '—';
@@ -84,28 +83,100 @@
       ? `<a class="open-link" href="${row.url}" target="_blank" rel="noopener noreferrer">Open ↗</a>`
       : '—';
 
-    tr.innerHTML = `
-      <td>${escapeHtml(row.itemName)}</td>
-      <td>${money(row.price)}</td>
-      <td>${money(row.reference)}</td>
-      <td>${discountHtml}</td>
-      <td>${row.quantity ?? '—'}</td>
-      <td>${row.seller ? escapeHtml(row.seller) : '—'}</td>
-      <td>${relTime(row.updated)}</td>
-      <td>${linkHtml}</td>
+    return `
+      <tr class="${row._fresh ? 'hit-fresh' : ''}">
+        <td>${escapeHtml(row.itemName)}</td>
+        <td>${money(row.price)}</td>
+        <td>${money(row.reference)}</td>
+        <td>${discountHtml}</td>
+        <td>${row.quantity ?? '—'}</td>
+        <td>${row.seller ? escapeHtml(row.seller) : '—'}</td>
+        <td>${relTime(row.updated)}</td>
+        <td>${linkHtml}</td>
+      </tr>
     `;
-    el.resultsBody.insertBefore(tr, el.resultsBody.firstChild);
+  }
 
-    while (el.resultsBody.children.length > MAX_ROWS) {
-      el.resultsBody.removeChild(el.resultsBody.lastChild);
+  const SORT_ACCESSORS = {
+    item: (r) => (r.itemName || '').toLowerCase(),
+    price: (r) => r.price,
+    reference: (r) => r.reference,
+    discount: (r) => r.discountPercent,
+    qty: (r) => r.quantity,
+    seller: (r) => (r.seller || '').toLowerCase(),
+    updated: (r) => {
+      if (!r.updated) return null;
+      const t = typeof r.updated === 'number' ? r.updated * 1000 : Date.parse(r.updated);
+      return Number.isNaN(t) ? null : t;
+    },
+  };
+
+  function isMissing(v) {
+    return v === null || v === undefined || v === '';
+  }
+
+  function compareRows(a, b, key, dir) {
+    const accessor = SORT_ACCESSORS[key];
+    const av = accessor(a);
+    const bv = accessor(b);
+    const aMissing = isMissing(av);
+    const bMissing = isMissing(bv);
+    if (aMissing && bMissing) return 0;
+    if (aMissing) return 1;
+    if (bMissing) return -1;
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  }
+
+  function updateSortIndicators() {
+    document.querySelectorAll('#resultsTable thead th[data-sort]').forEach((th) => {
+      const ind = th.querySelector('.sort-ind');
+      if (!ind) return;
+      ind.textContent = th.dataset.sort === sortState.key ? (sortState.dir === 1 ? '▲' : '▼') : '';
+    });
+  }
+
+  function renderResults() {
+    let rows = resultsData;
+    if (sortState.key) {
+      rows = [...resultsData].sort((a, b) => compareRows(a, b, sortState.key, sortState.dir));
     }
+    el.resultsBody.innerHTML = rows.map(rowHtml).join('');
+    el.emptyState.hidden = rows.length > 0;
+    resultsData.forEach((r) => { r._fresh = false; });
+    updateSortIndicators();
   }
 
-  function escapeHtml(text) {
-    const d = document.createElement('div');
-    d.textContent = text ?? '';
-    return d.innerHTML;
+  function clearResults() {
+    resultsData = [];
+    renderResults();
   }
+
+  function setResults(rows) {
+    resultsData = rows.map((r) => ({ ...r, _fresh: true }));
+    renderResults();
+  }
+
+  function addResults(rows) {
+    if (!rows.length) return;
+    const fresh = rows.map((r) => ({ ...r, _fresh: true }));
+    resultsData = [...fresh, ...resultsData].slice(0, MAX_ROWS);
+    renderResults();
+  }
+
+  document.querySelectorAll('#resultsTable thead th[data-sort]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (sortState.key === key) {
+        sortState.dir *= -1;
+      } else {
+        sortState.key = key;
+        sortState.dir = 1;
+      }
+      renderResults();
+    });
+  });
 
   function setActiveButton() {
     el.btnDollar.classList.toggle('active', mode === 'dollar');
@@ -139,19 +210,16 @@
       setStatus('Refreshing $1 bazaar listings…');
       try {
         const data = await fetchJson('api/dollar_items.php');
-        clearResults();
-        (data.items || []).forEach((it) => {
-          addRow({
-            itemName: it.itemName,
-            price: 1,
-            reference: it.marketPrice,
-            discountPercent: undefined,
-            quantity: it.quantity,
-            seller: it.sellerName,
-            updated: it.lastUpdated,
-            url: it.url,
-          });
-        });
+        setResults((data.items || []).map((it) => ({
+          itemName: it.itemName,
+          price: 1,
+          reference: it.marketPrice,
+          discountPercent: undefined,
+          quantity: it.quantity,
+          seller: it.sellerName,
+          updated: it.lastUpdated,
+          url: it.url,
+        })));
         setStatus(`Showing ${(data.items || []).length} $1 listings · refreshed ${new Date().toLocaleTimeString()}`);
       } catch (e) {
         setStatus('Error: ' + e.message);
@@ -197,8 +265,9 @@
         dealsCount = data.count;
         setStatus(`Checked ${data.item.name} (${data.index + 1}/${data.count}) · ${new Date().toLocaleTimeString()}`);
 
+        const newRows = [];
         if (data.officialHit) {
-          addRow({
+          newRows.push({
             itemName: data.item.name,
             price: data.officialHit.price,
             reference: data.officialHit.averagePrice,
@@ -210,7 +279,7 @@
           });
         }
         (data.communityHits || []).forEach((hit) => {
-          addRow({
+          newRows.push({
             itemName: data.item.name,
             price: hit.price,
             reference: hit.referencePrice,
@@ -221,6 +290,7 @@
             url: hit.url,
           });
         });
+        addResults(newRows);
       } catch (e) {
         setStatus('Error: ' + e.message);
       }

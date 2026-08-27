@@ -127,6 +127,22 @@ th {
   top: 0;
 }
 
+th[data-sort] {
+  cursor: pointer;
+  user-select: none;
+}
+
+th[data-sort]:hover {
+  color: var(--text);
+}
+
+.sort-ind {
+  margin-left: 4px;
+  color: var(--accent);
+  display: inline-block;
+  width: 10px;
+}
+
 tr.hit-fresh {
   animation: flash 1.2s ease-out;
 }
