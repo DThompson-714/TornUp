@@ -164,6 +164,10 @@ a.open-link:hover { text-decoration: underline; }
   padding: 16px;
 }
 
+.overlay[hidden] {
+  display: none;
+}
+
 .modal {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
