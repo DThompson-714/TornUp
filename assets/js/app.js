@@ -1,8 +1,11 @@
 (function () {
   'use strict';
 
-  const DEALS_POLL_MS = 1100;
-  const DOLLAR_REFRESH_MS = 60000;
+  const DEFAULT_DEALS_POLL_MS = 1100;
+  const DEFAULT_DOLLAR_REFRESH_MS = 60000;
+  const MIN_DEALS_POLL_MS = 700;
+  const MIN_DOLLAR_REFRESH_MS = 30000;
+  const MAX_INTERVAL_MS = 3600000;
   const MAX_ROWS = 250;
 
   const el = {
@@ -21,14 +24,19 @@
     watchlist: document.getElementById('watchlist'),
     btnRefreshCatalog: document.getElementById('btnRefreshCatalog'),
     catalogStatus: document.getElementById('catalogStatus'),
+    dealsIntervalInput: document.getElementById('dealsIntervalInput'),
+    dollarIntervalInput: document.getElementById('dollarIntervalInput'),
   };
 
   let mode = null;
   let timer = null;
+  let currentTick = null;
   let dealsIndex = 0;
   let dealsCount = 0;
   let resultsData = [];
   let sortState = { key: null, dir: 1 };
+  let dealsPollMs = DEFAULT_DEALS_POLL_MS;
+  let dollarRefreshMs = DEFAULT_DOLLAR_REFRESH_MS;
 
   async function fetchJson(url, opts) {
     const res = await fetch(url, opts);
@@ -80,6 +88,11 @@
       : null;
   }
 
+  function clamp(n, min, max) {
+    if (!Number.isFinite(n)) return min;
+    return Math.min(max, Math.max(min, n));
+  }
+
   function rowHtml(row) {
     const discountHtml = row.discountPercent !== undefined
       ? `<span class="discount-good">-${row.discountPercent}%</span>`
@@ -94,7 +107,11 @@
       ? `<a class="open-link" href="${marketUrl}" target="_blank" rel="noopener noreferrer">Market ↗</a>`
       : '';
 
-    const links = [openHtml, marketHtml].filter(Boolean).join('');
+    const dismissHtml = row._key
+      ? `<button type="button" class="dismiss-btn" data-key="${escapeHtml(row._key)}" title="Remove from this list">✕</button>`
+      : '';
+
+    const links = [openHtml, marketHtml, dismissHtml].filter(Boolean).join('');
     const linksHtml = links ? `<span class="links-cell">${links}</span>` : '—';
 
     return `
@@ -173,7 +190,7 @@
   }
 
   function addResults(rows) {
-    if (!rows.length) return;
+    if (!rows.length) return false;
     rows.forEach((row) => {
       if (row._key) {
         const idx = resultsData.findIndex((r) => r._key === row._key);
@@ -182,8 +199,24 @@
       resultsData.unshift({ ...row, _fresh: true });
     });
     resultsData = resultsData.slice(0, MAX_ROWS);
-    renderResults();
+    return true;
   }
+
+  /** Drops any existing row for this item whose key isn't in this tick's valid set. */
+  function pruneStaleForItem(itemId, validKeys) {
+    const before = resultsData.length;
+    resultsData = resultsData.filter((r) => r.itemId !== itemId || validKeys.has(r._key));
+    return resultsData.length !== before;
+  }
+
+  el.resultsBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.dismiss-btn');
+    if (!btn) return;
+    const key = btn.dataset.key;
+    if (!key) return;
+    resultsData = resultsData.filter((r) => r._key !== key);
+    renderResults();
+  });
 
   document.querySelectorAll('#resultsTable thead th[data-sort]').forEach((th) => {
     th.addEventListener('click', () => {
@@ -209,6 +242,7 @@
       clearInterval(timer);
       timer = null;
     }
+    currentTick = null;
     mode = null;
     setActiveButton();
     setBanner(null);
@@ -231,6 +265,7 @@
       try {
         const data = await fetchJson('api/dollar_items.php');
         setResults((data.items || []).map((it) => ({
+          _key: `dollar:${it.itemId}:${it.sellerId}`,
           itemId: it.itemId,
           itemName: it.itemName,
           price: 1,
@@ -247,8 +282,9 @@
       }
     }
 
+    currentTick = tick;
     await tick();
-    timer = setInterval(tick, DOLLAR_REFRESH_MS);
+    timer = setInterval(tick, dollarRefreshMs);
   }
 
   async function startDeals() {
@@ -287,9 +323,13 @@
         setStatus(`Checked ${data.item.name} (${data.index + 1}/${data.count}) · ${new Date().toLocaleTimeString()}`);
 
         const newRows = [];
+        const validKeys = new Set();
+
         if (data.officialHit) {
+          const key = `deal:${data.item.id}:itemmarket`;
+          validKeys.add(key);
           newRows.push({
-            _key: `deal:${data.item.id}:itemmarket`,
+            _key: key,
             itemId: data.item.id,
             itemName: data.item.name,
             price: data.officialHit.price,
@@ -302,8 +342,10 @@
           });
         }
         (data.communityHits || []).forEach((hit) => {
+          const key = `deal:${data.item.id}:bazaar:${hit.sellerId ?? hit.sellerName ?? Math.random()}`;
+          validKeys.add(key);
           newRows.push({
-            _key: `deal:${data.item.id}:bazaar:${hit.sellerId ?? hit.sellerName ?? Math.random()}`,
+            _key: key,
             itemId: data.item.id,
             itemName: data.item.name,
             price: hit.price,
@@ -315,14 +357,20 @@
             url: hit.url,
           });
         });
-        addResults(newRows);
+
+        // A prior hit for this item that's no longer confirmed (price back up,
+        // listing sold out, etc.) is stale — drop it rather than leave it showing.
+        const pruned = pruneStaleForItem(data.item.id, validKeys);
+        const added = addResults(newRows);
+        if (pruned || added) renderResults();
       } catch (e) {
         setStatus('Error: ' + e.message);
       }
     }
 
+    currentTick = tick;
     await tick();
-    timer = setInterval(tick, DEALS_POLL_MS);
+    timer = setInterval(tick, dealsPollMs);
   }
 
   el.btnDollar.addEventListener('click', startDollar);
@@ -423,4 +471,54 @@
       el.btnRefreshCatalog.disabled = false;
     }
   });
+
+  // --- Check intervals ---
+
+  function restartTimer(ms) {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = setInterval(currentTick, ms);
+  }
+
+  async function loadIntervalSettings() {
+    let server = { dealsPollMs: DEFAULT_DEALS_POLL_MS, dollarRefreshMs: DEFAULT_DOLLAR_REFRESH_MS };
+    try {
+      server = await fetchJson('api/settings.php');
+    } catch (e) {
+      // config.php unreadable or similar — fall back to built-in defaults silently
+    }
+
+    const storedDeals = parseInt(localStorage.getItem('tornup_dealsPollMs'), 10);
+    const storedDollar = parseInt(localStorage.getItem('tornup_dollarRefreshMs'), 10);
+
+    dealsPollMs = clamp(
+      Number.isFinite(storedDeals) ? storedDeals : server.dealsPollMs,
+      MIN_DEALS_POLL_MS, MAX_INTERVAL_MS
+    );
+    dollarRefreshMs = clamp(
+      Number.isFinite(storedDollar) ? storedDollar : server.dollarRefreshMs,
+      MIN_DOLLAR_REFRESH_MS, MAX_INTERVAL_MS
+    );
+
+    el.dealsIntervalInput.value = dealsPollMs;
+    el.dollarIntervalInput.value = dollarRefreshMs;
+  }
+
+  el.dealsIntervalInput.addEventListener('change', () => {
+    const v = clamp(parseInt(el.dealsIntervalInput.value, 10), MIN_DEALS_POLL_MS, MAX_INTERVAL_MS);
+    el.dealsIntervalInput.value = v;
+    dealsPollMs = v;
+    localStorage.setItem('tornup_dealsPollMs', String(v));
+    if (mode === 'deals') restartTimer(v);
+  });
+
+  el.dollarIntervalInput.addEventListener('change', () => {
+    const v = clamp(parseInt(el.dollarIntervalInput.value, 10), MIN_DOLLAR_REFRESH_MS, MAX_INTERVAL_MS);
+    el.dollarIntervalInput.value = v;
+    dollarRefreshMs = v;
+    localStorage.setItem('tornup_dollarRefreshMs', String(v));
+    if (mode === 'dollar') restartTimer(v);
+  });
+
+  loadIntervalSettings();
 })();

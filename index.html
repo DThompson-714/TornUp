@@ -66,6 +66,24 @@
       <button id="btnRefreshCatalog" class="btn btn-secondary" type="button">Refresh Item Catalog</button>
       <span id="catalogStatus" class="hint"></span>
     </section>
+
+    <section>
+      <h3>Check intervals</h3>
+      <p class="hint">
+        Defaults come from config.php; changes here are saved in this browser only and
+        take effect immediately, even mid-scan.
+      </p>
+      <div class="interval-row">
+        <label for="dealsIntervalInput">Deals check interval (ms)</label>
+        <input id="dealsIntervalInput" type="number" min="700" step="100">
+      </div>
+      <p class="hint">Each check spends 1 call against Torn's API and 1 against weav3r.dev — both allow 100/min, so keep this at 700ms or higher.</p>
+      <div class="interval-row">
+        <label for="dollarIntervalInput">$1 feed refresh interval (ms)</label>
+        <input id="dollarIntervalInput" type="number" min="30000" step="5000">
+      </div>
+      <p class="hint">weav3r.dev caches that feed for 30-180s, so refreshing faster than ~30s just re-fetches the same data.</p>
+    </section>
   </div>
 </div>
 
