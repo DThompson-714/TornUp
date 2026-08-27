@@ -68,6 +68,17 @@
     return !!card.querySelector('[data-testid="activate-buy-button"]');
   }
 
+  function getPriceValue(card) {
+    const priceEl = card.querySelector('[data-testid="price"]');
+    if (!priceEl) return null;
+    const digits = (priceEl.textContent || '').replace(/[^0-9]/g, '');
+    return digits ? parseInt(digits, 10) : null;
+  }
+
+  function isDollarItem(card) {
+    return getPriceValue(card) === 1;
+  }
+
   function highlight(card) {
     card.classList.add('tornup-available');
   }
@@ -89,7 +100,7 @@
 
   function runScan() {
     const cards = findItemCards();
-    const available = cards.filter(isAvailable);
+    const available = cards.filter((card) => isDollarItem(card) && isAvailable(card));
 
     if (available.length > 0) {
       available.forEach(highlight);
